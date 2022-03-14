@@ -171,7 +171,6 @@ public:
             firstKey[i]=0;
         }
     }
-    ~CDesOperate();
     //加密 参数依次为  明文  明文长度  密文 密文长度  秘钥 秘钥长度
     bool Encry(char* pPlaintext,int nPlaintextLength,char *pCipherBuffer,int &nCipherBufferLength, char *pKey,int nKeyLength);
     //解密 参数依次为 密文 密文长度 明文 明文长度   秘钥  密钥长度
@@ -182,7 +181,7 @@ public:
 void clientMode();
 void serverMode();
 ssize_t totalRecv(int s,void *buf,size_t len,int flags );
-void secretChat(int clientSocket, char *strIpAddr, char *key);
+void secretChat(int nSock, char *pRemoteName, char *pKey);
 
 int main(){
     bool input = false;
@@ -477,7 +476,7 @@ bool CDesOperate::Encry(char* pPlaintext, int nPlaintextLength, char *pCipherBuf
     }
     return true;
 }
-bool CDesOperator::Decry(char* pCipher,int nCipherBufferLength,char *pPlaintextBuffer, int &nPlaintextBufferLength, char *pKey,int nKeyLength){
+bool CDesOperate::Decry(char* pCipher,int nCipherBufferLength,char *pPlaintextBuffer, int &nPlaintextBufferLength, char *pKey,int nKeyLength){
     if(nCipherBufferLength%8 != 0)
     {
         return false;
@@ -588,7 +587,7 @@ ssize_t totalRecv(int s, void *buf, size_t len, int flags){
     return nCurSize;
 }
 
-void secretChat(int clientSocket, char *strIpAddr, char *key){
+void secretChat(int nSock, char *pRemoteName, char *pKey){
     printf("secretChat\n");
     CDesOperate cDes;
     if(strlen(pKey)!=8)
