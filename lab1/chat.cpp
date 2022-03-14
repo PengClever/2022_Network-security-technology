@@ -1,342 +1,178 @@
-#include <iostream>
-
-#include <sys/types.h>
-#include <sys/socket.h>
-
-#include <netinet/in.h>
-#include <arpa/inet.h>
-
+#include <stdio.h>
+#include <netdb.h>
 #include <unistd.h>
-#include<string.h>
-
-#define SERVERPORT 1234
-#define SUCCESS 1
-
+#include <iostream>
+#include <stdlib.h>
+#include <errno.h>
+#include <net/if.h>
+#include <string.h>
+#include <sys/types.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <sys/wait.h>
+#include <arpa/inet.h>
+#include <memory.h>
+#include <sys/ioctl.h>
+#include "des.h"
 using namespace std;
-
-//初始置换IP
-static u_int8_t  pc_first[64] = {
-    58,50,42,34,26,18,10,2,60,52,44,36,28,20,12,4,
-    62,54,46,38,30,22,14,6,64,56,48,40,32,24,16,8,
-    57,49,41,33,25,17, 9,1,59,51,43,35,27,19,11,3,
-    61,53,45,37,29,21,13,5,63,55,47,39,31,23,15,7 
-};
-//逆初始置换IP-1
-static u_int8_t pc_last[64] = {
-    40,8,48,16,56,24,64,32,39,7,47,15,55,23,63,31,
-    38,6,46,14,54,22,62,30,37,5,45,13,53,21,61,29,
-    36,4,44,12,52,20,60,28,35,3,43,11,51,19,59,27,
-    34,2,42,10,50,18,58,26,33,1,41, 9,49,17,57,25
-};
-//按位取值或赋值
-static u_int32_t  pc_by_bit[64] = { 
-    0x80000000L,0x40000000L,0x20000000L,0x10000000L,
-    0x8000000L, 0x4000000L, 0x2000000L, 0x1000000L, 
-    0x800000L,  0x400000L,  0x200000L,  0x100000L,  
-    0x80000L,   0x40000L,   0x20000L,   0x10000L, 
-    0x8000L,    0x4000L,    0x2000L,    0x1000L, 
-    0x800L,     0x400L,     0x200L,     0x100L, 
-    0x80L,      0x40L,      0x20L,      0x10L, 
-    0x8L,       0x4L,       0x2L,       0x1L,
-    0x80000000L,0x40000000L,0x20000000L,0x10000000L,
-    0x8000000L, 0x4000000L, 0x2000000L, 0x1000000L, 
-    0x800000L,  0x400000L,  0x200000L,  0x100000L,  
-    0x80000L,   0x40000L,   0x20000L,   0x10000L, 
-    0x8000L,    0x4000L,    0x2000L,    0x1000L, 
-    0x800L,     0x400L,     0x200L,     0x100L, 
-    0x80L,      0x40L,      0x20L,      0x10L, 
-    0x8L,       0x4L,       0x2L,       0x1L  
-};
-//置换运算P
-static u_int8_t des_P[32] = {
-    16, 7,20,21,29,12,28,17,
-    1 ,15,23,26, 5,18,31,10, 
-    2 , 8,24,14,32,27, 3, 9,
-    19,13,30, 6,22,11, 4,25
-};
-//选择扩展运算E盒
-static u_int8_t des_E[48] = {
-    32, 1, 2, 3, 4, 5,
-    4 , 5, 6, 7, 8, 9,
-    8 , 9,10,11,12,13,
-    12,13,14,15,16,17,
-    16,17,18,19,20,21,
-    20,21,22,23,24,25,
-    24,25,26,27,28,29,
-    28,29,30,31,32,1 
-};
-//选择压缩运算S盒
-static u_int8_t des_S[8][64] = 
-{
-    {
-            0xe,0x0,0x4,0xf,0xd,0x7,0x1,0x4,0x2,0xe,0xf,0x2,0xb,
-            0xd,0x8,0x1,0x3,0xa,0xa,0x6,0x6,0xc,0xc,0xb,0x5,0x9,
-            0x9,0x5,0x0,0x3,0x7,0x8,0x4,0xf,0x1,0xc,0xe,0x8,0x8,
-            0x2,0xd,0x4,0x6,0x9,0x2,0x1,0xb,0x7,0xf,0x5,0xc,0xb,
-            0x9,0x3,0x7,0xe,0x3,0xa,0xa,0x0,0x5,0x6,0x0,0xd  
-    },
-    { 
-            0xf,0x3,0x1,0xd,0x8,0x4,0xe,0x7,0x6,0xf,0xb,0x2,0x3,
-            0x8,0x4,0xf,0x9,0xc,0x7,0x0,0x2,0x1,0xd,0xa,0xc,0x6,
-            0x0,0x9,0x5,0xb,0xa,0x5,0x0,0xd,0xe,0x8,0x7,0xa,0xb,
-            0x1,0xa,0x3,0x4,0xf,0xd,0x4,0x1,0x2,0x5,0xb,0x8,0x6,
-            0xc,0x7,0x6,0xc,0x9,0x0,0x3,0x5,0x2,0xe,0xf,0x9
-    },
-    { 
-            0xa,0xd,0x0,0x7,0x9,0x0,0xe,0x9,0x6,0x3,0x3,0x4,0xf,
-            0x6,0x5,0xa,0x1,0x2,0xd,0x8,0xc,0x5,0x7,0xe,0xb,0xc,
-            0x4,0xb,0x2,0xf,0x8,0x1,0xd,0x1,0x6,0xa,0x4,0xd,0x9,
-            0x0,0x8,0x6,0xf,0x9,0x3,0x8,0x0,0x7,0xb,0x4,0x1,0xf,
-            0x2,0xe,0xc,0x3,0x5,0xb,0xa,0x5,0xe,0x2,0x7,0xc                                          
-    },
-    { 
-            0x7,0xd,0xd,0x8,0xe,0xb,0x3,0x5,0x0,0x6,0x6,0xf,0x9,
-            0x0,0xa,0x3,0x1,0x4,0x2,0x7,0x8,0x2,0x5,0xc,0xb,0x1,
-            0xc,0xa,0x4,0xe,0xf,0x9,0xa,0x3,0x6,0xf,0x9,0x0,0x0,
-            0x6,0xc,0xa,0xb,0xa,0x7,0xd,0xd,0x8,0xf,0x9,0x1,0x4,
-            0x3,0x5,0xe,0xb,0x5,0xc,0x2,0x7,0x8,0x2,0x4,0xe                         
-    },
-    { 
-            0x2,0xe,0xc,0xb,0x4,0x2,0x1,0xc,0x7,0x4,0xa,0x7,0xb,
-            0xd,0x6,0x1,0x8,0x5,0x5,0x0,0x3,0xf,0xf,0xa,0xd,0x3,
-            0x0,0x9,0xe,0x8,0x9,0x6,0x4,0xb,0x2,0x8,0x1,0xc,0xb,
-            0x7,0xa,0x1,0xd,0xe,0x7,0x2,0x8,0xd,0xf,0x6,0x9,0xf,
-            0xc,0x0,0x5,0x9,0x6,0xa,0x3,0x4,0x0,0x5,0xe,0x3
-    },
-    { 
-            0xc,0xa,0x1,0xf,0xa,0x4,0xf,0x2,0x9,0x7,0x2,0xc,0x6,
-            0x9,0x8,0x5,0x0,0x6,0xd,0x1,0x3,0xd,0x4,0xe,0xe,0x0,
-            0x7,0xb,0x5,0x3,0xb,0x8,0x9,0x4,0xe,0x3,0xf,0x2,0x5,
-            0xc,0x2,0x9,0x8,0x5,0xc,0xf,0x3,0xa,0x7,0xb,0x0,0xe,
-            0x4,0x1,0xa,0x7,0x1,0x6,0xd,0x0,0xb,0x8,0x6,0xd
-    },
-    { 
-            0x4,0xd,0xb,0x0,0x2,0xb,0xe,0x7,0xf,0x4,0x0,0x9,0x8,
-            0x1,0xd,0xa,0x3,0xe,0xc,0x3,0x9,0x5,0x7,0xc,0x5,0x2,
-            0xa,0xf,0x6,0x8,0x1,0x6,0x1,0x6,0x4,0xb,0xb,0xd,0xd,
-            0x8,0xc,0x1,0x3,0x4,0x7,0xa,0xe,0x7,0xa,0x9,0xf,0x5,
-            0x6,0x0,0x8,0xf,0x0,0xe,0x5,0x2,0x9,0x3,0x2,0xc
-    },
-    { 
-            0xd,0x1,0x2,0xf,0x8,0xd,0x4,0x8,0x6,0xa,0xf,0x3,0xb,
-            0x7,0x1,0x4,0xa,0xc,0x9,0x5,0x3,0x6,0xe,0xb,0x5,0x0,
-            0x0,0xe,0xc,0x9,0x7,0x2,0x7,0x2,0xb,0x1,0x4,0xe,0x1,
-            0x7,0x9,0x4,0xc,0xa,0xe,0x8,0x2,0xd,0x0,0xf,0x6,0xc,
-            0xa,0x9,0xd,0x0,0xf,0x3,0x3,0x5,0x5,0x6,0x8,0xb
-    } 
-};
-//等分密钥，密钥循环左移及密钥选取
-static u_int8_t keyleft[28] = 
-{
-    57,49,41,33,25,17,9,1,58,50,42,34,26,18,
-    10,2,59,51,43,35,27,19,11,3,60,52,44,36
-};
-static u_int8_t keyright[28] = 
-{
-    63,55,47,39,31,23,15,7,62,54,46,38,30,22,
-    14,6,61,53,45,37,29,21,13,5,28,20,12,4
-};
-static u_int8_t lefttable[16] = {1,1,2,2,2,2,2,2,1,2,2,2,2,2,2,1};
-static u_int8_t keychoose[48] ={
-    14,17,11,24,1,5,3,28,15,6,21,10,
-    23,19,12,4,26,8,16,7,27,20,13,2,
-    41,52,31,37,47,55,30,40,51,45,33,48,
-    44,49,39,56,34,53,46,42,50,36,29,32
-};
-
-
-typedef int INT32;
-
-class CDesOperate
-{
-private:
-	u_int32_t m_arrOutKey[16][2];
-	u_int32_t m_arrBufKey[2];
-    INT32 HandleData(u_int32_t *left, u_int8_t choice);
-    INT32 MakeData(u_int32_t *left, u_int32_t *right, u_int32_t number);
-    INT32 MakeKey(u_int32_t *keyleft, u_int32_t *keyright, u_int32_t number);
-    INT32 MakeFirstKey(u_int32_t *keyP);
-public:
-	CDesOperate();
-	~CDesOperate();
-    INT32 Encry(char* pPlaintext, int nPlaintextLength, char *pCipherBuffer, int &nCipherBufferLength, char *pKey,int nKeyLength);
-    INT32 Decry(char* pCipher, int nCipherBufferLength, char *pPlaintextBuffer, int &nPlaintextBufferLength, char *pKey,int nKeyLength);
-
-};
-
-INT32 CDesOperate::MakeKey (u_int32_t *keyleft, u_int32_t *keyright, u_int32_t number)
-{
-    u_int32_t tmpkey[2] ={0};
-    u_int32_t *Ptmpkey = (u_int32_t*)tmpkey;     
-    u_int32_t *Poutkey = (u_int32_t*)&g_outkey[number]; 
-    INT32 j;        
-    memset((u_int8_t*)tmpkey,0,sizeof(tmpkey));          
-    *Ptmpkey = *keyleft&leftandtab[lefttable[number]] ;           
-    Ptmpkey[1] = *keyright&leftandtab[lefttable[number]] ;              
-    if ( lefttable[number] == 1)
-    {
-        *Ptmpkey >>= 27;
-        Ptmpkey[1] >>= 27;
-    }
-    else
-    {
-        *Ptmpkey >>= 26;
-        Ptmpkey[1] >>= 26;                    
-    }
-    Ptmpkey[0] &= 0xfffffff0;
-    Ptmpkey[1] &= 0xfffffff0;
-    *keyleft <<= lefttable[number] ;
-    *keyright <<= lefttable[number] ;
-    *keyleft |= Ptmpkey[0] ;
-    *keyright |= Ptmpkey[1] ;            
-    Ptmpkey[0] = 0;
-    Ptmpkey[1] = 0;
-    for ( j = 0 ; j < 48 ; j++)
-    {
-        if ( j < 24 )
-        {
-            
-            if ( *keyleft&pc_by_bit[keychoose[j]-1])
-            {
-                Poutkey[0] |= pc_by_bit[j] ;
-            }                   
-        }            
-        else /*j>=24*/
-        {                   
-            if ( *keyright&pc_by_bit[(keychoose[j]-28)])
-            {
-                Poutkey[1] |= pc_by_bit[j-24] ;
-            }                   
+#define SERVERPORT 3333
+#define BUFFERSIZE 64
+char strStdinBuffer[BUFFERSIZE];
+char strSocketBuffer[BUFFERSIZE];
+char strEncryBuffer[BUFFERSIZE];
+char strDecryBuffer[BUFFERSIZE];
+ssize_t totalRecv(int s,void *buf,size_t len,int flags ){
+    size_t nCurSize=0;
+    while(nCurSize<len){
+        ssize_t nRes=recv(s ,(char*)buf+nCurSize,len-nCurSize,flags);
+        if(nRes<0||nRes+nCurSize>len){
+            return -1;
         }
+        nCurSize+=nRes;
     }
-    return SUCCESS;
+    return nCurSize;
+
 }
-INT32 CDesOperate::Encry(char* pPlaintext,int nPlaintextLength,char *pCipherBuffer,int &nCipherBufferLength, char *pKey,int nKeyLength)
+void safeChat(int nSock,char *pRemoteName, char *pKey)
 {
-    if(nKeyLength != 8)
+ CDesOperator cDes;
+ if(strlen(pKey)!=8)
+ {
+  printf("Key length error");
+  return ;
+ }
+ pid_t nPid;
+ nPid = fork();
+ if(nPid != 0)                     //子线程用于接受信息
+ {
+  while(1)
+  {
+   bzero(&strSocketBuffer, BUFFERSIZE);
+   int nLength = 0;
+   nLength =totalRecv (nSock, strSocketBuffer,BUFFERSIZE,0);
+   if(nLength !=BUFFERSIZE)
+   {
+    break;
+   }
+   else
+   {
+    int nLen = BUFFERSIZE;
+    cDes.Decry(strSocketBuffer,BUFFERSIZE,strDecryBuffer,nLen,pKey,8);
+    strDecryBuffer[BUFFERSIZE-1]=0;
+    if(strDecryBuffer[0]!=0&&strDecryBuffer[0]!='\n')
     {
-        return 0;
+     printf("Receive message form <%s>: %s\n", pRemoteName,strDecryBuffer);
+     if(0==memcmp("quit",strDecryBuffer,4))
+     {
+      printf("Quit!\n");
+      break;
+     }
     }
-    MakeFirstKey((u_int32_t *)pKey);
-    int nLenthofLong = ((nPlaintextLength+7)/8)*2;
-    if(nCipherBufferLength<nLenthofLong*4)
-    {//out put buffer is not enough
-        nCipherBufferLength=nLenthofLong*4;
-        return 0;
-    }
-    memset(pCipherBuffer,0,nCipherBufferLength);
-    u_int32_t *pOutPutSpace = (u_int32_t *)pCipherBuffer;
-    u_int32_t * pSource;
-    if(nPlaintextLength != sizeof(u_int32_t)*nLenthofLong)
+   }
+  }
+ }
+ else                                                                                                               //父线程发送消息
+ {
+  while(1)
+  {
+   bzero(&strStdinBuffer, BUFFERSIZE);
+   while(strStdinBuffer[0]==0)
+   {
+    if (fgets(strStdinBuffer, BUFFERSIZE, stdin) == NULL)                      //读取一行
     {
-        pSource= new u_int32_t[nLenthofLong];
-        memset(pSource,0,sizeof(u_int32_t)*nLenthofLong);
-        memcpy(pSource,pPlaintext,nPlaintextLength);
+     continue;
     }
-    else		{
-        pSource= (u_int32_t *)pPlaintext;
-    }
-    u_int32_t gp_msg[2] = {0,0};
-    for (int i=0;i<(nLenthofLong/2);i++)
+   }
+   int nLen = BUFFERSIZE;
+   cDes.Encry(strStdinBuffer,BUFFERSIZE,strEncryBuffer,nLen,pKey,8);
+   if(send(nSock, strEncryBuffer, BUFFERSIZE,0)!=BUFFERSIZE)
+   {
+    perror("send");
+   }
+   else
+   {
+    if(0==memcmp("quit",strStdinBuffer,4))
     {
-        gp_msg[0] = pSource [2*i];
-        gp_msg[1] = pSource [2*i+1];
-        HandleData(gp_msg,DESENCRY);
-        pOutPutSpace[2*i] = gp_msg[0];
-        pOutPutSpace[2*i+1] = gp_msg[1];
+     printf("Quit!\n");
+     break;
     }
-    if(pPlaintext!=(char *) pSource)
-    {
-        delete []pSource;
-    }
-    
-    return SUCCESS;
+   }
+  }
+ }
 }
+int main(int argc,char * [])
+{
+ printf("Client or Server?\r\n");
+ cin>>strStdinBuffer;
+ if(strStdinBuffer[0]=='c'||strStdinBuffer[0]=='C')
+ {//be a client
+  char strIpAddr[16];
+  printf("Please input the server address:\r\n");
+  cin>>strIpAddr;
+  int nConnectSocket;
+  struct sockaddr_in sDestAddr;
+  if ((nConnectSocket = socket(AF_INET, SOCK_STREAM, 0)) < 0)
+  {
+   perror("Socket");
+   exit(errno);
+  }
+  bzero(&sDestAddr, sizeof(sDestAddr));
+  sDestAddr.sin_family = AF_INET;
+  sDestAddr.sin_port = htons(SERVERPORT);
+  sDestAddr.sin_addr.s_addr = inet_addr(strIpAddr);
+          /* 连接服务器 */
+  if (connect(nConnectSocket, (struct sockaddr *) &sDestAddr, sizeof(sDestAddr)) != 0)
+  {
+   perror("Connect ");
+   exit(errno);
+  }
+  else
+  {
+   printf("Connect Success!  \nBegin to chat...\n");
+   safeChat(nConnectSocket,strIpAddr,"iloveyou");
+  }
+        close(nConnectSocket);
+ }
+ else
+ {//be a server
+  int nListenSocket, nAcceptSocket;
+  socklen_t nLength = 0;
+  struct sockaddr_in sLocalAddr, sRemoteAddr;
+  if ((nListenSocket = socket(PF_INET, SOCK_STREAM, 0)) == -1)
+  {
+   perror("socket");
+   exit(1);
+  }
 
-void SecretChat(int nSock, char *pRemoteName, char *pKey);
-int server();
-int client();
+  bzero(&sLocalAddr, sizeof(sLocalAddr));
+  sLocalAddr.sin_family = PF_INET;
+  sLocalAddr.sin_port = htons(SERVERPORT);
+  sLocalAddr.sin_addr.s_addr = INADDR_ANY;
 
-int main(){
-    int mood;
-    printf("0 or 1: ");
-    scanf("%d", &mood);
-    if(mood == 0){
-        cout << "server" << endl;
-        server();
-    }
-    else if(mood == 1){
-        cout << "client" << endl;
-        client();
-    }else {
-        cout << "aa" << endl;
-        //aaa();
-    }
-    return 0;
-}
-
-void SecretChat(int nSock, char *pRemoteName, char *pKey){
-    
-}
-
-int server(){
-    int nListenSocket, nAcceptSocket;
-    struct sockaddr_in sLocalAddr, sRemoteAddr;
-    if((nListenSocket = socket(AF_INET, SOCK_STREAM, IPPROTO_TCP)) < 0)
-    {
-        perror("Socket");//perror函数用于打印最近一次错误信息
-        exit(errno);//exit函数用于立即终止当前进程
-    }
-    cout << "Socket" << endl;
-    memset(&sLocalAddr, 0, sizeof(sLocalAddr));
-    sLocalAddr.sin_family = AF_INET;
-    sLocalAddr.sin_port = htons(1234);
-    sLocalAddr.sin_addr.s_addr = inet_addr("127.0.0.1");
-    if(bind(nListenSocket, (struct sockaddr *)&sLocalAddr, sizeof(sLocalAddr)) == -1){
-        perror("bind");
-        exit(errno);
-    };
-    cout << "bind" << endl;
-    if (listen(nListenSocket, 5) == -1)
-    {
-        perror("listen");
-        exit(errno);
-    }
-    cout << "listen" << endl;
-    socklen_t nLength = sizeof(sRemoteAddr);
-    nAcceptSocket = accept(nListenSocket, (struct sockaddr *)&sRemoteAddr, &nLength);
-    close(nListenSocket);
-    printf("server: got connection from %s, port %d, socket %d\n", inet_ntoa(sRemoteAddr.sin_addr), ntohs(sRemoteAddr.sin_port), nAcceptSocket);
-    //SecretChat(nAcceptSocket, inet_ntoa(sRemoteAddr.sin_addr), "benbenmi");
-    close(nAcceptSocket);
-    return 0;
-}
-
-int client(){
-    char strIpAddr[16];
-    cin >> strIpAddr;
-    int nConnectSocket, nLength;
-    struct sockaddr_in sDestAddr;
-    if((nConnectSocket = socket(AF_INET, SOCK_STREAM, 0)) < 0)
-    {
-        perror("Socket");
-        exit(errno);
-    }
-    cout << "socket" << endl;
-    sDestAddr.sin_family = AF_INET;
-    sDestAddr.sin_port = htons(SERVERPORT);
-    sDestAddr.sin_addr.s_addr = inet_addr(strIpAddr);
-    cout << "c" << endl;
-    if(connect(nConnectSocket, (struct sockaddr *)&sDestAddr, sizeof(sDestAddr)) != 0)
-    {
-        perror("Connect ");
-        exit(errno);
-    }
-    else
-    {
-        printf("Connect Success! \nBegin to chat...\n");
-        //SecretChat(nConnectSocket, strIpAddr, "benbenmi");
-    }
-    close(nConnectSocket);//需要unistd头文件的导入
-    return 0;
+  if (bind(nListenSocket, (struct sockaddr *) &sLocalAddr, sizeof(struct sockaddr))== -1)
+  {
+   perror("bind");
+   exit(1);
+  }
+  if (listen(nListenSocket, 5) == -1)
+  {
+   perror("listen");
+   exit(1);
+  }
+  printf("Listening...\n");
+  nLength = sizeof(struct sockaddr);
+  if ((nAcceptSocket = accept(nListenSocket, (struct sockaddr *) &sRemoteAddr,&nLength)) == -1)
+  {
+   perror("accept");
+   exit(errno);
+  }
+  else
+  {
+   close(nListenSocket);
+   printf("server: got connection from %s, port %d, socket %d\n",inet_ntoa(sRemoteAddr.sin_addr),ntohs(sRemoteAddr.sin_port), nAcceptSocket);
+   safeChat(nAcceptSocket,inet_ntoa(sRemoteAddr.sin_addr),"iloveyou");
+   close(nAcceptSocket);
+  }
+ }
+ return 0;
 }
