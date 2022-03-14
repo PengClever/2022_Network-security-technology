@@ -1,0 +1,26 @@
+{
+    "version": "0.2.0",
+    "configurations": [
+        
+        {
+            "name": "(gdb) Launch", //gdb调试
+            "type": "cppdbg",
+            "request": "launch",
+            "program": "${workspaceFolder}/text.out", //目标文件 就是我们编辑的文件名.out
+            //这里指向要调试的程序//标注:${workspaceFolder}为工作空间文件夹,${fileBasenameNoExtension}为当前打开的文件的文件名，不包括路径和后缀名
+            "args": [],
+            "stopAtEntry": false,
+            "cwd": "${workspaceFolder}",
+            "environment": [],
+            "externalConsole": true,
+            "MIMode": "gdb",
+            "setupCommands": [
+                {
+                    "description": "Enable pretty-printing for gdb",
+                    "text": "-enable-pretty-printing",
+                    "ignoreFailures": true
+                }
+            ]
+        }
+    ]
+}
