@@ -14,6 +14,11 @@
 using namespace std;
 
 #define SERVERPORT 5555
+#define BUFFERSIZE 64
+char strStdinBuffer[BUFFERSIZE];
+char strSocketBuffer[BUFFERSIZE];
+char strEncryBuffer[BUFFERSIZE];
+char strDecryBuffer[BUFFERSIZE];
 
 typedef int INT32;
 typedef char INT8;
@@ -141,9 +146,42 @@ static const ULONG8 keychoose[48] ={
     44,49,39,56,34,53,46,42,50,36,29,32
 };
 
+class CDesOperate{
+private:
+    //存储生成的子密钥
+    ULONG32 subKey[16][2];
+    //存储计算中间值
+    ULONG32 firstKey[2];
+    //用于完成一次独立的加密或解密过程
+    bool handleData(ULONG32 *data, ULONG8 choice);
+    //用于实现16轮的每一轮加解密
+    bool oneStepOfMakeData(ULONG32 *left, ULONG32 *right, INT32 number);
+    //用于生成初始秘钥
+    bool makeFirstKey(ULONG32 *orgKey);
+    //用于16轮迭代生成子秘钥的每一轮运算
+    bool oneStepOfMakeSubKey(ULONG32 *left, ULONG32 *right, INT32 number);
+public:
+    CDesOperate(){
+        for(int i=0;i<16;i++){
+            for(int j=0;j<2;j++){
+                subKey[i][j]=0;
+            }
+        }
+        for(int i=0;i<2;i++){
+            firstKey[i]=0;
+        }
+    }
+    ~CDesOperate();
+    //加密 参数依次为  明文  明文长度  密文 密文长度  秘钥 秘钥长度
+    bool Encry(char* pPlaintext,int nPlaintextLength,char *pCipherBuffer,int &nCipherBufferLength, char *pKey,int nKeyLength);
+    //解密 参数依次为 密文 密文长度 明文 明文长度   秘钥  密钥长度
+    bool Decry(char* pCipher,int nCipherBufferLength,char *pPlaintextBuffer, int &nPlaintextBufferLength, char *pKey,int nKeyLength);
+};
+
 
 void clientMode();
 void serverMode();
+ssize_t totalRecv(int s,void *buf,size_t len,int flags );
 void secretChat(int clientSocket, char *strIpAddr, char *key);
 
 int main(){
@@ -171,6 +209,302 @@ int main(){
         }
     }
     return 0;
+}
+
+
+bool CDesOperate::handleData(ULONG32 *left, ULONG8 choice){
+    int j = 0;
+    ULONG32 *right =& left[1];
+    ULONG32 tempData[2] = {0};
+    for(j = 0; j < 64; j++){
+        if(j < 32){
+            if(pc_first[j] > 32){
+                if(*right&pc_by_bit[pc_first[j]-1]){
+                    tempData[0] |= pc_by_bit[j];
+                }
+            }else{
+                if(*left&pc_by_bit[pc_first[j]-1]){
+                    tempData[0] |= pc_by_bit[j];
+                }
+            }
+        }else{
+            if(pc_first[j]>32){
+                if(*right&pc_by_bit[pc_first[j]-1]){
+                    tempData[1] |= pc_by_bit[j];
+                }
+            }else{
+                if(*left&pc_by_bit[pc_first[j]-1]){
+                    tempData[1] |= pc_by_bit[j];
+                }
+            }
+        }
+    }
+    *left = tempData[0];
+    *right = tempData[1];
+    tempData[0] = 0;
+    tempData[1] = 0;
+    int number = 0;
+    switch(choice){
+    case 0:
+        for(number = 0; number < 16; number++){
+            oneStepOfMakeData(left, right, (ULONG32)number);
+        }
+        break;
+    case 1:
+        for(number=15;number>=0;number--){
+            oneStepOfMakeData(left, right, (ULONG32)number);
+        }
+        break;
+    default:
+        break;
+    }
+    ULONG32 temp;
+    temp = *left;
+    *left = *right;
+    *right = temp;
+    for (j = 0; j < 64; j++)
+    {
+        if (j < 32)
+        {
+            if (pc_last[j] > 32)
+            {
+                if (*right&pc_by_bit[pc_last[j]-1])
+                {
+                    tempData[0] |= pc_by_bit[j];
+                }
+            }
+            else
+            {
+                if (*left&pc_by_bit[pc_last[j]-1])
+                {
+                    tempData[0] |= pc_by_bit[j];
+                }
+            }
+        }
+        else
+        {
+            if (pc_last[j] > 32)
+            {
+                if (*right&pc_by_bit[pc_last[j]-1])
+                {
+                    tempData[1] |= pc_by_bit[j];
+                }
+            }
+            else
+            {
+                if (*left&pc_by_bit[pc_last[j]-1])
+                {
+                    tempData[1] |= pc_by_bit[j];
+                }
+            }
+        }
+    }
+    *left =  tempData[0] ;
+    *right = tempData[1];
+    return true;
+}
+
+bool CDesOperate::oneStepOfMakeData(ULONG32 *left, ULONG32 *right, INT32 number){
+    ULONG32 oldRight =*right;
+    ULONG8 useBySBox[8] = {0};
+    ULONG32 exdesP[2] = {0};
+    int j;
+    for(j = 0; j < 48; j++){
+        if (j < 24)
+        {
+            if ( *right&pc_by_bit[des_E[j]-1] )
+            {
+                exdesP[0] |= pc_by_bit[j] ;
+            }
+        }
+        else
+        {
+            if ( *right&pc_by_bit[des_E[j]-1] )
+            {
+                exdesP[1] |= pc_by_bit[j-24] ;
+            }
+        }
+    }
+    for(j = 0; j < 2; j++){
+        exdesP[j] ^= subKey[number][j];
+    }
+    exdesP[1] >>= 8 ;
+    useBySBox[7] = (ULONG8) (exdesP[1]&0x0000003fL) ;
+    exdesP[1] >>= 6 ;
+    useBySBox[6] = (ULONG8) (exdesP[1]&0x0000003fL) ;
+    exdesP[1] >>= 6 ;
+    useBySBox[5] = (ULONG8) (exdesP[1]&0x0000003fL) ;
+    exdesP[1] >>= 6 ;
+    useBySBox[4] = (ULONG8) (exdesP[1]&0x0000003fL) ;
+    exdesP[0] >>= 8 ;
+    useBySBox[3] = (ULONG8) (exdesP[0]&0x0000003fL) ;
+    exdesP[0] >>= 6 ;
+    useBySBox[2] = (ULONG8) (exdesP[0]&0x0000003fL) ;
+    exdesP[0] >>= 6 ;
+    useBySBox[1] = (ULONG8) (exdesP[0]&0x0000003fL) ;
+    exdesP[0] >>= 6 ;
+    useBySBox[0] = (ULONG8) (exdesP[0]&0x0000003fL) ;
+    exdesP[0] = 0 ;
+    exdesP[1] = 0 ;
+    *right = 0;
+    for(j = 0; j < 7; j++){
+        *right |= des_S[j][useBySBox[j]];
+        *right <<= 4;
+    }
+    *right |= des_S[j][useBySBox[j]];
+    ULONG32 tempData = 0;
+    for (j = 0; j < 32; j++)
+    {
+        if (*right&pc_by_bit[des_P[j]-1] )
+        {
+            tempData |= pc_by_bit[j] ;
+        }
+    }
+    *right = tempData ;
+    *right ^= *left;
+    *left = oldRight;
+    return true;
+}
+
+bool CDesOperate::makeFirstKey(ULONG32 *orgKey){
+    ULONG32 tempKey[2] = {0};
+    ULONG32 *pFirstKey = (ULONG32 *)firstKey;
+    ULONG32 *pTempKey = (ULONG32 *)tempKey;
+    memset((ULONG8 *)firstKey, 0, sizeof(firstKey));
+    memcpy((ULONG8 *)&tempKey, (ULONG8 *)orgKey, 8);
+    memset((ULONG8 *)subKey, 0, sizeof(subKey));
+    int j = 0;
+    for(j = 0; j < 28; j++){
+        if(keyleft[j] > 32){
+            if(pTempKey[1] & pc_by_bit[keyleft[j] - 1]){
+                pFirstKey[0] |= pc_by_bit[j];
+            }
+        }
+        else{
+            if(pTempKey[0] & pc_by_bit[keyleft[j] - 1]){
+                pFirstKey[0] |= pc_by_bit[j];
+            }
+        }
+        if(keyright[j] > 32){
+            if(pTempKey[1] & pc_by_bit[keyright[j] - 1]){
+                pFirstKey[1] |= pc_by_bit[j];
+            }
+        }
+        else{
+            if(pTempKey[0] & pc_by_bit[keyright[j] - 1]){
+                pFirstKey[1] |= pc_by_bit[j];
+            }
+        }
+    }
+    for(j = 0; j < 16; j++){
+        oneStepOfMakeSubKey(&pFirstKey[0], &pFirstKey[1], j);
+    }
+    return true;
+}
+
+bool CDesOperate::oneStepOfMakeSubKey(ULONG32 *left, ULONG32 *right, INT32 number){
+    ULONG32 tempKey[2] = {0, 0};
+    ULONG32 *pTempKey = (ULONG32 *)tempKey;
+    ULONG32 *pSubKey = (ULONG32 *)subKey[number];
+    ULONG32 helpData[3] = {0x0, 0x80000000, 0xc0000000};
+    pTempKey[0] = *left&helpData[lefttable[number]];
+    pTempKey[1] = *right&helpData[lefttable[number]];
+    if(lefttable[number] == 1){
+        pTempKey[0] >>= 27;
+        pTempKey[1] >>= 27;
+    }else{
+        pTempKey[0] >>= 26;
+        pTempKey[1] >>= 26;
+    }
+    pTempKey[0] &= 0xfffffff0;
+    pTempKey[1] &= 0xfffffff0;
+    *left <<= lefttable[number];
+    *right <<= lefttable[number];
+    *left |= pTempKey[0];
+    *right |= pTempKey[1];
+    pTempKey[0] = 0;
+    pTempKey[1] = 0;
+
+    int j=0;
+    for(;j<48;j++){
+        if(j<24){
+            if(*left&pc_by_bit[keychoose[j]-1]){
+                pSubKey[0]|=pc_by_bit[j];
+            }
+        }
+        else{
+            if(*right&pc_by_bit[keychoose[j]-28]){
+                    pSubKey[1]|=pc_by_bit[j-24];
+                }
+            }
+        }
+    return true;
+}
+
+bool CDesOperate::Encry(char* pPlaintext, int nPlaintextLength, char *pCipherBuffer, int &nCipherBufferLength, char *pKey, int nKeyLength){
+    if(nKeyLength != 8){
+        return false;
+    }
+    makeFirstKey((ULONG32*)pKey);
+    int length=((nPlaintextLength+7) / 8) * 2;
+    if(nCipherBufferLength < length * 4){
+        nCipherBufferLength = length * 4;
+    }
+    memset(pCipherBuffer,0,nCipherBufferLength);
+    ULONG32 *output = (ULONG32 *)pCipherBuffer;
+    ULONG32 *source;
+    if(nPlaintextLength != sizeof(ULONG32)*length)
+    {
+        source = new ULONG32[length];
+        memset(source, 0, sizeof(ULONG32)*length);
+        memcpy(source, pPlaintext, nPlaintextLength);
+    } 
+    else
+    {
+        source = (ULONG32 *)pPlaintext;
+    }
+    ULONG32 msg[2] = {0, 0};
+    for(int i = 0; i < (length/2); i++){
+        msg[0] = source[2*i];
+        msg[1] = source[2*i+1];
+        handleData(msg,(ULONG8)0);
+        output[2*i]=msg[0];
+        output[2*i+1]=msg[1];
+    }
+    if(pPlaintext!=(char *)source)
+    {
+        delete []source;
+    }
+    return true;
+}
+bool CDesOperator::Decry(char* pCipher,int nCipherBufferLength,char *pPlaintextBuffer, int &nPlaintextBufferLength, char *pKey,int nKeyLength){
+    if(nCipherBufferLength%8 != 0)
+    {
+        return false;
+    }
+    if(nPlaintextBufferLength<nCipherBufferLength)
+    {
+        nPlaintextBufferLength = nCipherBufferLength;
+        return false;
+    }
+    if(nKeyLength != 8)
+    {
+        return false;
+    }
+    makeFirstKey((ULONG32*)pKey);
+    memset(pPlaintextBuffer,0,nPlaintextBufferLength);
+    ULONG32 *pSouce = (ULONG32 *)pCipher;
+    ULONG32 *pDest = (ULONG32 *)pPlaintextBuffer;
+    ULONG32 gp_msg[2] = {0,0};
+    for (int i=0;i<(nCipherBufferLength/8);i++)
+    {
+        gp_msg[0] = pSouce[2*i];
+        gp_msg[1] = pSouce[2*i+1];
+        handleData(gp_msg,(ULONG8)1);
+        pDest[2*i] = gp_msg[0];
+        pDest[2*i+1] = gp_msg[1];
+    }
+    return true;
 }
 
 void clientMode(){
@@ -242,7 +576,83 @@ void serverMode(){
     return;
 }
 
+ssize_t totalRecv(int s, void *buf, size_t len, int flags){
+    size_t nCurSize = 0;
+    while(nCurSize < len){
+        ssize_t nRes = recv(s, (char*)buf + nCurSize, len - nCurSize, flags);
+        if(nRes < 0 || nRes + nCurSize > len){
+            return -1;
+        }
+        nCurSize += nRes;
+    }
+    return nCurSize;
+}
+
 void secretChat(int clientSocket, char *strIpAddr, char *key){
     printf("secretChat\n");
+    CDesOperate cDes;
+    if(strlen(pKey)!=8)
+    {
+        printf("Key length error");
+        return ;
+    }
+    pid_t nPid;
+    nPid = fork();
+    if(nPid != 0)
+    {
+        while(1)
+        {
+            bzero(&strSocketBuffer, BUFFERSIZE);
+            int nLength = 0;
+            nLength = totalRecv (nSock, strSocketBuffer, BUFFERSIZE, 0);
+            if(nLength != BUFFERSIZE)
+            {
+                break;
+            }
+            else
+            {
+                int nLen = BUFFERSIZE;
+                cDes.Decry(strSocketBuffer, BUFFERSIZE, strDecryBuffer, nLen, pKey, 8);
+                strDecryBuffer[BUFFERSIZE-1]=0;
+                if(strDecryBuffer[0] != 0 && strDecryBuffer[0] != '\n')
+                {
+                    printf("Receive message form <%s>: %s\n", pRemoteName, strDecryBuffer);
+                    if(0 == memcmp("quit",strDecryBuffer,4))
+                    {
+                        printf("Quit!\n");
+                        break;
+                    }
+                }
+            }
+        }
+    }
+    else
+    {
+        while(1)
+        {
+            bzero(&strStdinBuffer, BUFFERSIZE);
+            while(strStdinBuffer[0]==0)
+            {
+                if (fgets(strStdinBuffer, BUFFERSIZE, stdin) == NULL)
+                {
+                    continue;
+                }
+            }
+            int nLen = BUFFERSIZE;
+            cDes.Encry(strStdinBuffer, BUFFERSIZE, strEncryBuffer, nLen, pKey, 8);
+            if(send(nSock, strEncryBuffer, BUFFERSIZE,0)!=BUFFERSIZE)
+            {
+                perror("send");
+            }
+            else
+            {
+                if(0==memcmp("quit",strStdinBuffer,4))
+                {
+                    printf("Quit!\n");
+                    break;
+                }
+            }
+        }
+    }
     return;
 }
