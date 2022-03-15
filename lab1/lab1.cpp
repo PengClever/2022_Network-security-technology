@@ -15,6 +15,9 @@ using namespace std;
 
 #define SERVERPORT 5555
 #define BUFFERSIZE 64
+#define SUCCESS    1
+#define FAILED     0
+
 char strStdinBuffer[BUFFERSIZE];
 char strSocketBuffer[BUFFERSIZE];
 char strEncryBuffer[BUFFERSIZE];
@@ -27,19 +30,19 @@ typedef unsigned short ULONG16;
 typedef unsigned long ULONG32;
 
 //初始置换IP
-static const ULONG8 pc_first[64] = {
+static ULONG8 pc_first[64] = {
     58, 50, 42, 34, 26, 18, 10, 2, 60, 52, 44, 36, 28, 20, 12, 4,
     62, 54, 46, 38, 30, 22, 14, 6, 64, 56, 48, 40, 32, 24, 16, 8,
     57, 49, 41, 33, 25, 17, 9, 1, 59, 51, 43, 35, 27, 19, 11, 3,
     61, 53, 45, 37, 29, 21, 13, 5, 63, 55, 47, 39, 31, 23, 15, 7};
 //逆初始置换IP-1
-static const ULONG8 pc_last[64] = {
+static ULONG8 pc_last[64] = {
     40, 8, 48, 16, 56, 24, 64, 32, 39, 7, 47, 15, 55, 23, 63, 31,
     38, 6, 46, 14, 54, 22, 62, 30, 37, 5, 45, 13, 53, 21, 61, 29,
     36, 4, 44, 12, 52, 20, 60, 28, 35, 3, 43, 11, 51, 19, 59, 27,
     34, 2, 42, 10, 50, 18, 58, 26, 33, 1, 41, 9, 49, 17, 57, 25};
 //按位取值或赋值
-static const ULONG32 pc_by_bit[64] = {
+static ULONG32 pc_by_bit[64] = {
     0x80000000L, 0x40000000L, 0x20000000L, 0x10000000L, 0x8000000L,
     0x4000000L, 0x2000000L, 0x1000000L, 0x800000L, 0x400000L,
     0x200000L, 0x100000L, 0x80000L, 0x40000L, 0x20000L, 0x10000L,
@@ -51,18 +54,18 @@ static const ULONG32 pc_by_bit[64] = {
     0x8000L, 0x4000L, 0x2000L, 0x1000L, 0x800L, 0x400L, 0x200L,
     0x100L, 0x80L, 0x40L, 0x20L, 0x10L, 0x8L, 0x4L, 0x2L, 0x1L};
 //置换运算P
-static const ULONG8 des_P[32] = {
+static ULONG8 des_P[32] = {
     16, 7, 20, 21, 29, 12, 28, 17, 1, 15, 23, 26,
     5, 18, 31, 10, 2, 8, 24, 14, 32, 27, 3, 9,
     19, 13, 30, 6, 22, 11, 4, 25};
 //数据扩展E
-static const ULONG8 des_E[48] = {
+static ULONG8 des_E[48] = {
     32, 1, 2, 3, 4, 5, 4, 5, 6, 7, 8, 9, 8, 9, 10, 11, 12, 13,
     12, 13, 14, 15, 16, 17, 16, 17, 18, 19, 20, 21,
     20, 21, 22, 23, 24, 25, 24, 25, 26, 27, 28, 29,
     28, 29, 30, 31, 32, 1};
 //数据压缩S
-static const ULONG8 des_S[8][64] = {
+static ULONG8 des_S[8][64] = {
     {0xe, 0x0, 0x4, 0xf, 0xd, 0x7, 0x1, 0x4, 0x2, 0xe, 0xf, 0x2, 0xb,
      0xd, 0x8, 0x1, 0x3, 0xa, 0xa, 0x6, 0x6, 0xc, 0xc, 0xb, 0x5, 0x9,
      0x9, 0x5, 0x0, 0x3, 0x7, 0x8, 0x4, 0xf, 0x1, 0xc, 0xe, 0x8, 0x8,
@@ -104,17 +107,17 @@ static const ULONG8 des_S[8][64] = {
      0x7, 0x9, 0x4, 0xc, 0xa, 0xe, 0x8, 0x2, 0xd, 0x0, 0xf, 0x6, 0xc,
      0xa, 0x9, 0xd, 0x0, 0xf, 0x3, 0x3, 0x5, 0x5, 0x6, 0x8, 0xb}};
 //等分密钥
-static const ULONG8 keyleft[28] = {
+static ULONG8 keyleft[28] = {
     57, 49, 41, 33, 25, 17, 9, 1, 58, 50, 42, 34, 26, 18,
     10, 2, 59, 51, 43, 35, 27, 19, 11, 3, 60, 52, 44, 36};
-static const ULONG8 keyright[28] = {
+static ULONG8 keyright[28] = {
     63, 55, 47, 39, 31, 23, 15, 7, 62, 54, 46, 38, 30, 22,
     14, 6, 61, 53, 45, 37, 29, 21, 13, 5, 28, 20, 12, 4};
 //密钥移位
-static const ULONG8 lefttable[16] = {
+static ULONG8 lefttable[16] = {
     1, 1, 2, 2, 2, 2, 2, 2, 1, 2, 2, 2, 2, 2, 2, 1};
 //密钥选取
-static const ULONG8 keychoose[48] = {
+static ULONG8 keychoose[48] = {
     14, 17, 11, 24, 1, 5, 3, 28, 15, 6, 21, 10,
     23, 19, 12, 4, 26, 8, 16, 7, 27, 20, 13, 2,
     41, 52, 31, 37, 47, 55, 30, 40, 51, 45, 33, 48,
@@ -124,17 +127,17 @@ class CDesOperate
 {
 private:
     //存储生成的子密钥
-    ULONG32 subKey[16][2];
+    ULONG32 m_arrOutKey[16][2];
     //存储计算中间值
-    ULONG32 firstKey[2];
+    ULONG32 m_arrBufKey[2];
     //用于完成一次独立的加密或解密过程
-    bool handleData(ULONG32 *data, ULONG8 choice);
+    INT32 HandleData(ULONG32 *left, ULONG8 choice);
     //用于实现16轮的每一轮加解密
-    bool oneStepOfMakeData(ULONG32 *left, ULONG32 *right, INT32 number);
-    //用于生成初始秘钥
-    bool makeFirstKey(ULONG32 *orgKey);
+    INT32 MakeData(ULONG32 *left, ULONG32 *right, ULONG32 number);
     //用于16轮迭代生成子秘钥的每一轮运算
-    bool oneStepOfMakeSubKey(ULONG32 *left, ULONG32 *right, INT32 number);
+    INT32 MakeKey(ULONG32 *left, ULONG32 *right, ULONG32 number);
+    //用于生成初始秘钥
+    INT32 MakeFirstKey(ULONG32 *keyP);
 
 public:
     CDesOperate()
@@ -143,18 +146,18 @@ public:
         {
             for (int j = 0; j < 2; j++)
             {
-                subKey[i][j] = 0;
+                m_arrOutKey[i][j] = 0;
             }
         }
         for (int i = 0; i < 2; i++)
         {
-            firstKey[i] = 0;
+            m_arrBufKey[i] = 0;
         }
     }
     //加密函数
-    bool Encry(char *pPlaintext, int nPlaintextLength, char *pCipherBuffer, int &nCipherBufferLength, char *pKey, int nKeyLength);
+    INT32 Encry(char *pPlaintext, int nPlaintextLength, char *pCipherBuffer, int &nCipherBufferLength, char *pKey, int nKeyLength);
     //解密函数
-    bool Decry(char *pCipher, int nCipherBufferLength, char *pPlaintextBuffer, int &nPlaintextBufferLength, char *pKey, int nKeyLength);
+    INT32 Decry(char *pCipher, int nCipherBufferLength, char *pPlaintextBuffer, int &nPlaintextBufferLength, char *pKey, int nKeyLength);
 };
 
 void clientMode();
@@ -190,12 +193,12 @@ int main()
     return 0;
 }
 
-bool CDesOperate::handleData(ULONG32 *left, ULONG8 choice)
+INT32 CDesOperate::HandleData(ULONG32 *left, ULONG8 choice)
 {
+    INT32 number = 0, j = 0;
     ULONG32 *right = &left[1];
-    ULONG32 tempData[2] = {0};
+    ULONG32 tempBuf[2] = {0};
 	//初始置换IP
-    int j;
     for (j = 0; j < 64; j++)
     {
         if (j < 32)
@@ -204,14 +207,14 @@ bool CDesOperate::handleData(ULONG32 *left, ULONG8 choice)
             {
                 if (*right & pc_by_bit[pc_first[j] - 1])
                 {
-                    tempData[0] |= pc_by_bit[j];
+                    tempBuf[0] |= pc_by_bit[j];
                 }
             }
             else
             {
                 if (*left & pc_by_bit[pc_first[j] - 1])
                 {
-                    tempData[0] |= pc_by_bit[j];
+                    tempBuf[0] |= pc_by_bit[j];
                 }
             }
         }
@@ -221,36 +224,35 @@ bool CDesOperate::handleData(ULONG32 *left, ULONG8 choice)
             {
                 if (*right & pc_by_bit[pc_first[j] - 1])
                 {
-                    tempData[1] |= pc_by_bit[j];
+                    tempBuf[1] |= pc_by_bit[j];
                 }
             }
             else
             {
                 if (*left & pc_by_bit[pc_first[j] - 1])
                 {
-                    tempData[1] |= pc_by_bit[j];
+                    tempBuf[1] |= pc_by_bit[j];
                 }
             }
         }
     }
-    *left = tempData[0];
-    *right = tempData[1];
-    tempData[0] = 0;
-    tempData[1] = 0;
-    int number = 0;
+    *left = tempBuf[0];
+    *right = tempBuf[1];
+    tempBuf[0] = 0;
+    tempBuf[1] = 0;
 	//0:加密，递增使用子密钥、1:解密，递减使用子密钥
     switch (choice)
     {
     case 0:
         for (number = 0; number < 16; number++)
         {
-            oneStepOfMakeData(left, right, (ULONG32)number);
+            MakeData(left, right, (ULONG32)number);
         }
         break;
     case 1:
         for (number = 15; number >= 0; number--)
         {
-            oneStepOfMakeData(left, right, (ULONG32)number);
+            MakeData(left, right, (ULONG32)number);
         }
         break;
     default:
@@ -269,14 +271,14 @@ bool CDesOperate::handleData(ULONG32 *left, ULONG8 choice)
             {
                 if (*right & pc_by_bit[pc_last[j] - 1])
                 {
-                    tempData[0] |= pc_by_bit[j];
+                    tempBuf[0] |= pc_by_bit[j];
                 }
             }
             else
             {
                 if (*left & pc_by_bit[pc_last[j] - 1])
                 {
-                    tempData[0] |= pc_by_bit[j];
+                    tempBuf[0] |= pc_by_bit[j];
                 }
             }
         }
@@ -286,28 +288,28 @@ bool CDesOperate::handleData(ULONG32 *left, ULONG8 choice)
             {
                 if (*right & pc_by_bit[pc_last[j] - 1])
                 {
-                    tempData[1] |= pc_by_bit[j];
+                    tempBuf[1] |= pc_by_bit[j];
                 }
             }
             else
             {
                 if (*left & pc_by_bit[pc_last[j] - 1])
                 {
-                    tempData[1] |= pc_by_bit[j];
+                    tempBuf[1] |= pc_by_bit[j];
                 }
             }
         }
     }
-    *left = tempData[0];
-    *right = tempData[1];
-    return true;
+    *left = tempBuf[0];
+    *right = tempBuf[1];
+    return SUCCESS;
 }
 
-bool CDesOperate::oneStepOfMakeData(ULONG32 *left, ULONG32 *right, INT32 number)
+INT32 CDesOperate::MakeData(ULONG32 *left, ULONG32 *right, ULONG32 number)
 {
-    ULONG32 oldRight = *right;
-    ULONG8 useBySBox[8] = {0};
-    ULONG32 exdesP[2] = {0};
+    ULONG32 oldright = *right;
+    ULONG8 rexpbuf[8] = {0};
+    ULONG32 exdes_P[2] = {0};
 	//数据扩展E，2*16bit->2*24bit，存储在高24位
     int j;
     for (j = 0; j < 48; j++)
@@ -316,73 +318,73 @@ bool CDesOperate::oneStepOfMakeData(ULONG32 *left, ULONG32 *right, INT32 number)
         {
             if (*right & pc_by_bit[des_E[j] - 1])
             {
-                exdesP[0] |= pc_by_bit[j];
+                exdes_P[0] |= pc_by_bit[j];
             }
         }
         else
         {
             if (*right & pc_by_bit[des_E[j] - 1])
             {
-                exdesP[1] |= pc_by_bit[j - 24];
+                exdes_P[1] |= pc_by_bit[j - 24];
             }
         }
     }
 	//异或子密钥xor
     for (j = 0; j < 2; j++)
     {
-        exdesP[j] ^= subKey[number][j];
+        exdes_P[j] ^= m_arrOutKey[number][j];
     }
 	//数据压缩S，存储6位数据
-    exdesP[1] >>= 8;
-    useBySBox[7] = (ULONG8)(exdesP[1] & 0x0000003fL);
-    exdesP[1] >>= 6;
-    useBySBox[6] = (ULONG8)(exdesP[1] & 0x0000003fL);
-    exdesP[1] >>= 6;
-    useBySBox[5] = (ULONG8)(exdesP[1] & 0x0000003fL);
-    exdesP[1] >>= 6;
-    useBySBox[4] = (ULONG8)(exdesP[1] & 0x0000003fL);
-    exdesP[0] >>= 8;
-    useBySBox[3] = (ULONG8)(exdesP[0] & 0x0000003fL);
-    exdesP[0] >>= 6;
-    useBySBox[2] = (ULONG8)(exdesP[0] & 0x0000003fL);
-    exdesP[0] >>= 6;
-    useBySBox[1] = (ULONG8)(exdesP[0] & 0x0000003fL);
-    exdesP[0] >>= 6;
-    useBySBox[0] = (ULONG8)(exdesP[0] & 0x0000003fL);
-    exdesP[0] = 0;
-    exdesP[1] = 0;
+    exdes_P[1] >>= 8;
+    rexpbuf[7] = (ULONG8)(exdes_P[1] & 0x0000003fL);
+    exdes_P[1] >>= 6;
+    rexpbuf[6] = (ULONG8)(exdes_P[1] & 0x0000003fL);
+    exdes_P[1] >>= 6;
+    rexpbuf[5] = (ULONG8)(exdes_P[1] & 0x0000003fL);
+    exdes_P[1] >>= 6;
+    rexpbuf[4] = (ULONG8)(exdes_P[1] & 0x0000003fL);
+    exdes_P[0] >>= 8;
+    rexpbuf[3] = (ULONG8)(exdes_P[0] & 0x0000003fL);
+    exdes_P[0] >>= 6;
+    rexpbuf[2] = (ULONG8)(exdes_P[0] & 0x0000003fL);
+    exdes_P[0] >>= 6;
+    rexpbuf[1] = (ULONG8)(exdes_P[0] & 0x0000003fL);
+    exdes_P[0] >>= 6;
+    rexpbuf[0] = (ULONG8)(exdes_P[0] & 0x0000003fL);
+    exdes_P[0] = 0;
+    exdes_P[1] = 0;
     *right = 0;
     for (j = 0; j < 7; j++)
     {
-        *right |= des_S[j][useBySBox[j]];
+        *right |= des_S[j][rexpbuf[j]];
         *right <<= 4;
     }
-    *right |= des_S[j][useBySBox[j]];
+    *right |= des_S[j][rexpbuf[j]];
 	//置换运算P
-    ULONG32 tempData = 0;
+    ULONG32 datatmp = 0;
     for (j = 0; j < 32; j++)
     {
         if (*right & pc_by_bit[des_P[j] - 1])
         {
-            tempData |= pc_by_bit[j];
+            datatmp |= pc_by_bit[j];
         }
     }
-    *right = tempData;
+    *right = datatmp;
     *right ^= *left;
-    *left = oldRight;
-    return true;
+    *left = oldright;
+    return SUCCESS;
 }
 
 //生成子密钥集合函数
-bool CDesOperate::makeFirstKey(ULONG32 *orgKey)
+INT32 CDesOperate::MakeFirstKey(ULONG32 *orgKey)
 {
 	//初始化子密钥集合
     ULONG32 tempKey[2] = {0};
-    ULONG32 *pFirstKey = (ULONG32 *)firstKey;
+    ULONG32 *pFirstKey = (ULONG32 *)m_arrBufKey;
     ULONG32 *pTempKey = (ULONG32 *)tempKey;
-    memset((ULONG8 *)firstKey, 0, sizeof(firstKey));
+    memset((ULONG8 *)m_arrBufKey, 0, sizeof(m_arrBufKey));
     memcpy((ULONG8 *)&tempKey, (ULONG8 *)orgKey, 8);
-    memset((ULONG8 *)subKey, 0, sizeof(subKey));
+    memset((ULONG8 *)m_arrOutKey, 0, sizeof(m_arrOutKey));
 	//初始密钥进行置换选择64bit->56bit，这里存储在高28位
     int j;
     for (j = 0; j < 28; j++)
@@ -419,22 +421,22 @@ bool CDesOperate::makeFirstKey(ULONG32 *orgKey)
 	//迭代生成16轮子密钥
     for (j = 0; j < 16; j++)
     {
-        oneStepOfMakeSubKey(&pFirstKey[0], &pFirstKey[1], j);
+        MakeKey(&pFirstKey[0], &pFirstKey[1], j);
     }
-    return true;
+    return SUCCESS;
 }
 
 //单轮子密钥移位函数
-bool CDesOperate::oneStepOfMakeSubKey(ULONG32 *left, ULONG32 *right, INT32 number)
+INT32 CDesOperate::MakeKey(ULONG32 *left, ULONG32 *right, ULONG32 number)
 {
 	//初始化该轮密钥
     ULONG32 tempKey[2] = {0, 0};
     ULONG32 *pTempKey = (ULONG32 *)tempKey;
-    ULONG32 *pSubKey = (ULONG32 *)subKey[number];
+    ULONG32 *pOutKey = (ULONG32 *)m_arrOutKey[number];
 	//用于记录移位过程中的高位进位情况
-    ULONG32 helpData[3] = {0x0, 0x80000000, 0xc0000000};
-    pTempKey[0] = *left & helpData[lefttable[number]];
-    pTempKey[1] = *right & helpData[lefttable[number]];
+    ULONG32 leftandtab[3] = {0x0, 0x80000000, 0xc0000000};
+    pTempKey[0] = *left & leftandtab[lefttable[number]];
+    pTempKey[1] = *right & leftandtab[lefttable[number]];
 	//左移1位<=>右移27位，左移2位<=>右移26位
     if (lefttable[number] == 1)
     {
@@ -465,64 +467,65 @@ bool CDesOperate::oneStepOfMakeSubKey(ULONG32 *left, ULONG32 *right, INT32 numbe
         {
             if (*left & pc_by_bit[keychoose[j] - 1])
             {
-                pSubKey[0] |= pc_by_bit[j];
+                pOutKey[0] |= pc_by_bit[j];
             }
         }
         else
         {
             if (*right & pc_by_bit[keychoose[j] - 28])
             {
-                pSubKey[1] |= pc_by_bit[j - 24];
+                pOutKey[1] |= pc_by_bit[j - 24];
             }
         }
     }
-    return true;
+    return SUCCESS;
 }
 
-bool CDesOperate::Encry(char *pPlaintext, int nPlaintextLength, char *pCipherBuffer, int &nCipherBufferLength, char *pKey, int nKeyLength)
+INT32 CDesOperate::Encry(char *pPlaintext, int nPlaintextLength, char *pCipherBuffer, int &nCipherBufferLength, char *pKey, int nKeyLength)
 {
 	//判断密钥长度
     if (nKeyLength != 8)
     {
-        return false;
+        return FAILED;
     }
 	//生成子密钥
-    makeFirstKey((ULONG32 *)pKey);
-    int length = ((nPlaintextLength + 7) / 8) * 2;
-    if (nCipherBufferLength < length * 4)
+    MakeFirstKey((ULONG32 *)pKey);
+    int nLengthofLong = ((nPlaintextLength + 7) / 8) * 2;
+    if (nCipherBufferLength < nLengthofLong * 4)
     {
-        nCipherBufferLength = length * 4;
+        nCipherBufferLength = nLengthofLong * 4;
+        return FAILED;
     }
     memset(pCipherBuffer, 0, nCipherBufferLength);
-    ULONG32 *output = (ULONG32 *)pCipherBuffer;
-    ULONG32 *source;
-    if (nPlaintextLength != sizeof(ULONG32) * length)
+    ULONG32 *pOutPutSpace = (ULONG32 *)pCipherBuffer;
+    ULONG32 *pSource;
+    if (nPlaintextLength != sizeof(ULONG32) * nLengthofLong)
     {
-        source = new ULONG32[length];
-        memset(source, 0, sizeof(ULONG32) * length);
-        memcpy(source, pPlaintext, nPlaintextLength);
+        pSource = new ULONG32[nLengthofLong];
+        memset(pSource, 0, sizeof(ULONG32) * nLengthofLong);
+        memcpy(pSource, pPlaintext, nPlaintextLength);
     }
     else
     {
-        source = (ULONG32 *)pPlaintext;
+        pSource = (ULONG32 *)pPlaintext;
     }
-    ULONG32 msg[2] = {0, 0};
-    for (int i = 0; i < (length / 2); i++)
+    ULONG32 gp_msg[2] = {0, 0};
+    for (int i = 0; i < (nLengthofLong / 2); i++)
     {
-        msg[0] = source[2 * i];
-        msg[1] = source[2 * i + 1];
-        handleData(msg, (ULONG8)0);
-        output[2 * i] = msg[0];
-        output[2 * i + 1] = msg[1];
+        gp_msg[0] = pSource[2 * i];
+        gp_msg[1] = pSource[2 * i + 1];
+        HandleData(gp_msg, (ULONG8)0);
+        pOutPutSpace[2 * i] = gp_msg[0];
+        pOutPutSpace[2 * i + 1] = gp_msg[1];
     }
-    if (pPlaintext != (char *)source)
+    if (pPlaintext != (char *)pSource)
     {
-        delete[] source;
+        delete[] pSource;
     }
-    return true;
+    return SUCCESS;
 }
 
-bool CDesOperate::Decry(char *pCipher, int nCipherBufferLength, char *pPlaintextBuffer, int &nPlaintextBufferLength, char *pKey, int nKeyLength)
+INT32 CDesOperate::Decry(char *pCipher, int nCipherBufferLength, char *pPlaintextBuffer, int &nPlaintextBufferLength, char *pKey, int nKeyLength)
 {
 	//判断解密长度
     if (nCipherBufferLength % 8 != 0)
@@ -540,7 +543,7 @@ bool CDesOperate::Decry(char *pCipher, int nCipherBufferLength, char *pPlaintext
         return false;
     }
 	//生成子密钥
-    makeFirstKey((ULONG32 *)pKey);
+    MakeFirstKey((ULONG32 *)pKey);
     memset(pPlaintextBuffer, 0, nPlaintextBufferLength);
     ULONG32 *pSouce = (ULONG32 *)pCipher;
     ULONG32 *pDest = (ULONG32 *)pPlaintextBuffer;
@@ -549,11 +552,11 @@ bool CDesOperate::Decry(char *pCipher, int nCipherBufferLength, char *pPlaintext
     {
         gp_msg[0] = pSouce[2 * i];
         gp_msg[1] = pSouce[2 * i + 1];
-        handleData(gp_msg, (ULONG8)1);
+        HandleData(gp_msg, (ULONG8)1);
         pDest[2 * i] = gp_msg[0];
         pDest[2 * i + 1] = gp_msg[1];
     }
-    return true;
+    return SUCCESS;
 }
 
 void clientMode()
